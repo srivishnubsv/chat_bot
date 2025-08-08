@@ -51,13 +51,8 @@ export const deleteConversationAPI = (chatId) =>
 export const updateConversationAPI = (chatId, conversationData) =>
   api.put(`/api/conversations/${chatId}`, conversationData);
 
-/**
- * Sends a message to the chatbot endpoint.
- * This function now correctly returns just the data portion of the response.
- */
 export const sendChatMessageToAI = async (message) => {
   const res = await api.post("/chatbot", { message });
-  // THIS IS THE FIX: Return `res.data` so the component gets the { reply: "..." } object.
   return res.data;
 };
 

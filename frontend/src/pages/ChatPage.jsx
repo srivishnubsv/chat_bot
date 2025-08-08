@@ -2,20 +2,23 @@ import React, { useState, useEffect, useRef } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import ChatList from "../components/ChatList";
 import ChatMessage from "../components/ChatMessage";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SendHorizonal, Bot } from "lucide-react";
 import {
   fetchConversationHeaders,
   fetchConversationMessages,
   createConversation,
+  updateConversation,
   addMessageToChat,
   removeLastMessageFromChat,
-  updateConversation,
 } from "../slices/chatSlice";
 import { sendChatMessageToAI } from "../api/api";
-import "../styles/ChatPage.css";
 
 const ChatPage = () => {
   const dispatch = useDispatch();
-  const chatEndRef = useRef(null);
+  const messagesEndRef = useRef(null);
 
   const { conversations, activeChatId, status } = useSelector(
     (state) => state.chat
@@ -30,78 +33,55 @@ const ChatPage = () => {
       dispatch(fetchConversationHeaders());
     }
   }, [status, dispatch]);
+
   useEffect(() => {
     if (activeChatId) {
       const conversation = conversations.find((c) => c.id === activeChatId);
-      // If the conversation exists but its 'messages' array is empty (or not present),
-      // it means we only have the header and need to fetch the full data.
-      if (
-        conversation &&
-        (!conversation.messages || conversation.messages.length === 0)
-      ) {
-        // Check if it's a truly empty chat vs one whose messages just haven't been loaded
-        // A newly created chat will have a message, so this logic is safe.
-        // We can refine this by checking for a specific property if needed.
+      if (conversation && !conversation.messages) {
         dispatch(fetchConversationMessages(activeChatId));
       }
     }
   }, [activeChatId, conversations, dispatch]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const handleSend = async () => {
     if (!input.trim()) return;
-
-    console.log(`[handleSend] 1. Triggered with input: "${input}"`);
-
     const userMessage = { text: input, isUser: true };
-    const userInput = input; // Store input in a separate variable
-    setInput(""); // Clear input field immediately
-
+    const userInput = input;
+    setInput("");
     let currentChatId = activeChatId;
 
-    // If there is no active chat, we must create one first.
     if (!currentChatId) {
       try {
-        const newConvAction = await dispatch(
+        const actionResult = await dispatch(
           createConversation({ heading: userInput, messages: [userMessage] })
         );
-        if (createConversation.fulfilled.match(newConvAction)) {
-          currentChatId = newConvAction.payload.id;
-        } else {
-          return;
-        }
+        if (createConversation.fulfilled.match(actionResult)) {
+          currentChatId = actionResult.payload.id;
+        } else return;
       } catch (e) {
         return;
       }
     } else {
-      // For existing chats, just add the message to the local state for now.
       dispatch(
         addMessageToChat({ chatId: currentChatId, message: userMessage })
       );
     }
 
-    // --- AI Response Logic ---
     setIsAiResponding(true);
-    // Add loading indicator
     dispatch(
       addMessageToChat({
         chatId: currentChatId,
         message: { text: "", isUser: false, loading: true },
       })
     );
-    console.log("[handleSend] 3. Added loading indicator. Sending to AI...");
 
     try {
       const aiRes = await sendChatMessageToAI(userInput);
-      console.log("[handleSend] 4. Received response from AI:", aiRes);
-
-      // Remove the loading indicator
       dispatch(removeLastMessageFromChat(currentChatId));
-
-      // Add the actual AI response
       if (aiRes && aiRes.reply) {
         dispatch(
           addMessageToChat({
@@ -109,13 +89,8 @@ const ChatPage = () => {
             message: { text: aiRes.reply, isUser: false },
           })
         );
-
-        // ***** SAVE THE CONVERSATION TO DB *****
-        // After the AI replies and the local state is updated,
-        // dispatch the thunk to save the entire conversation to the database.
         dispatch(updateConversation(currentChatId));
       } else {
-        console.error("[handleSend] 5b. AI response was empty or malformed.");
         dispatch(
           addMessageToChat({
             chatId: currentChatId,
@@ -127,8 +102,6 @@ const ChatPage = () => {
         );
       }
     } catch (e) {
-      console.error("[handleSend] 6. Error fetching AI response:", e);
-      // Replace loading indicator with an error message
       dispatch(removeLastMessageFromChat(currentChatId));
       dispatch(
         addMessageToChat({
@@ -138,52 +111,75 @@ const ChatPage = () => {
       );
     } finally {
       setIsAiResponding(false);
-      console.log("[handleSend] 7. Finished.");
     }
   };
 
+  const isLoadingMessages = status === "loading" && messages.length === 0;
+
   return (
-    <div className="chat-page-container">
+    <div className="flex h-screen w-full bg-background text-foreground">
       <ChatList />
-      <div className="chat-window">
-        <div className="messages-container">
-          {activeConversation ? (
-            messages.map((msg, idx) => (
-              <ChatMessage
-                key={idx}
-                message={msg.text}
-                isUser={msg.isUser}
-                loading={msg.loading}
-              />
-            ))
-          ) : (
-            <div className="no-chat-selected">
-              <h2>chatty</h2>
-              <p>Select a conversation or start a new one.</p>
-            </div>
-          )}
-          <div ref={chatEndRef} />
-        </div>
-        <div className="input-area">
-          <div className="input-bar">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your message here..."
-              disabled={isAiResponding}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !isAiResponding) handleSend();
-              }}
-            />
-            <button
-              onClick={handleSend}
-              disabled={isAiResponding || !input.trim()}
-            >
-              Send
-            </button>
+      <div className="flex flex-1 flex-col">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <div className="mx-auto max-w-4xl space-y-4">
+            {isLoadingMessages ? (
+              <div className="flex h-[70vh] items-center justify-center">
+                <p>Loading conversations...</p>
+              </div>
+            ) : activeConversation ? (
+              messages.map((msg, idx) => (
+                <ChatMessage
+                  key={idx}
+                  isUser={msg.isUser}
+                  loading={msg.loading}
+                  message={msg.text}
+                />
+              ))
+            ) : (
+              <div className="flex h-[70vh] items-center justify-center">
+                <Card className="w-full max-w-md">
+                  <CardHeader className="text-center">
+                    <CardTitle className="flex items-center justify-center gap-2 text-2xl">
+                      <Bot /> Chatty
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-center text-muted-foreground">
+                      Select a conversation or start a new one to begin.
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
           </div>
-        </div>
+        </main>
+        <footer className="border-t bg-background p-4 md:p-6">
+          <div className="mx-auto max-w-4xl">
+            <div className="relative">
+              <Input
+                type="text"
+                placeholder="Type your message here..."
+                className="pr-16"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !isAiResponding) handleSend();
+                }}
+                disabled={isAiResponding}
+              />
+              <Button
+                type="submit"
+                size="icon"
+                className="absolute right-0 top-1/2 -translate-y-1/2"
+                onClick={handleSend}
+                disabled={isAiResponding || !input.trim()}
+              >
+                <SendHorizonal className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+        </footer>
       </div>
     </div>
   );

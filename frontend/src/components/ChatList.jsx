@@ -9,11 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  setActiveChatId,
-  deleteConversation,
-  clearChatState,
-} from "../slices/chatSlice";
+import { setActiveChatId, deleteConversation } from "../slices/chatSlice";
 import { cn } from "@/lib/utils";
 import { PlusCircle, Trash2, LogOut } from "lucide-react";
 

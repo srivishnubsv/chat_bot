@@ -51,8 +51,14 @@ export const deleteConversationAPI = (chatId) =>
 export const updateConversationAPI = (chatId, conversationData) =>
   api.put(`/api/conversations/${chatId}`, conversationData);
 
-export const sendChatMessageToAI = async (message) => {
-  const res = await api.post("/chatbot", { message });
+export const sendChatMessageToAI = async (history) => {
+  // history should be an array of objects: { isUser: true/false, text: "..." }
+  const formattedHistory = history.map((m) => ({
+    role: m.isUser ? "user" : "model", // lowercase and exactly matches Go struct
+    text: m.text,
+  }));
+
+  const res = await api.post("/chatbot", { history: formattedHistory });
   return res.data;
 };
 

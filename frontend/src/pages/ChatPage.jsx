@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useSelector, useDispatch } from "react-redux";
+import { store } from "../app/store";
 import ChatList from "../components/ChatList";
 import ChatMessage from "../components/ChatMessage";
 import { Button } from "@/components/ui/button";
@@ -47,72 +48,132 @@ const ChatPage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // This is the new, more robust handleSend function.
+  // ... inside the ChatPage component
+
   const handleSend = async () => {
     if (!input.trim()) return;
-    const userMessage = { text: input, isUser: true };
+
     const userInput = input;
+    const userMessage = { text: userInput, isUser: true };
     setInput("");
-    let currentChatId = activeChatId;
+
+    const currentChatId = activeChatId;
+
+    console.log(
+      `%c--- [NEW MESSAGE] ---`,
+      "color: #00A36C; font-weight: bold;"
+    );
+    console.log(`1. User input: "${userInput}"`);
+    console.log(`2. Active Chat ID: ${currentChatId}`);
 
     if (!currentChatId) {
-      try {
-        const actionResult = await dispatch(
-          createConversation({ heading: userInput, messages: [userMessage] })
+      // --- LOGIC FOR A NEW CONVERSATION ---
+      console.log("3a. Path: Starting a NEW conversation.");
+      setIsAiResponding(true);
+      await dispatch(
+        createConversation({ heading: userInput, messages: [userMessage] })
+      );
+      setIsAiResponding(false);
+      console.log(
+        "3b. New conversation created and initial response received."
+      );
+    } else {
+      // --- LOGIC FOR AN EXISTING CONVERSATION ---
+      console.log("3a. Path: Adding to an EXISTING conversation.");
+
+      const conversationBeforeUpdate = conversations.find(
+        (c) => c.id === currentChatId
+      );
+
+      // This is a critical check.
+      if (!conversationBeforeUpdate) {
+        console.error(
+          "CRITICAL ERROR: Could not find active conversation in state before updating. Aborting."
         );
-        if (createConversation.fulfilled.match(actionResult)) {
-          currentChatId = actionResult.payload.id;
-        } else return;
-      } catch (e) {
         return;
       }
-    } else {
+
+      console.log(
+        "3b. Conversation state BEFORE adding new user message:",
+        conversationBeforeUpdate
+      );
+
+      // This is the array we will build our history from.
+      const messagesForHistory = [
+        ...conversationBeforeUpdate.messages,
+        userMessage,
+      ];
+
+      console.log(
+        `3c. Messages to be used for history array (length: ${messagesForHistory.length}):`,
+        messagesForHistory
+      );
+
+      const historyForAI = messagesForHistory.map((msg) => ({
+        role: msg.isUser ? "user" : "model",
+        text: msg.text,
+      }));
+
+      console.log(
+        `4a. CONSTRUCTED HISTORY for AI (length: ${historyForAI.length}):`,
+        historyForAI
+      );
+
+      // Check if the history is empty before sending
+      if (historyForAI.length === 0) {
+        console.error(
+          "CRITICAL ERROR: History for AI is empty. Aborting API call."
+        );
+        return;
+      }
+
+      // Optimistic UI updates
       dispatch(
         addMessageToChat({ chatId: currentChatId, message: userMessage })
       );
-    }
-
-    setIsAiResponding(true);
-    dispatch(
-      addMessageToChat({
-        chatId: currentChatId,
-        message: { text: "", isUser: false, loading: true },
-      })
-    );
-
-    try {
-      const aiRes = await sendChatMessageToAI(userInput);
-      dispatch(removeLastMessageFromChat(currentChatId));
-      if (aiRes && aiRes.reply) {
-        dispatch(
-          addMessageToChat({
-            chatId: currentChatId,
-            message: { text: aiRes.reply, isUser: false },
-          })
-        );
-        dispatch(updateConversation(currentChatId));
-      } else {
-        dispatch(
-          addMessageToChat({
-            chatId: currentChatId,
-            message: {
-              text: "Sorry, I received an empty response.",
-              isUser: false,
-            },
-          })
-        );
-      }
-    } catch (e) {
-      dispatch(removeLastMessageFromChat(currentChatId));
+      setIsAiResponding(true);
       dispatch(
         addMessageToChat({
           chatId: currentChatId,
-          message: { text: "Sorry, I ran into an error.", isUser: false },
+          message: { text: "", isUser: false, loading: true },
         })
       );
-    } finally {
-      setIsAiResponding(false);
+
+      try {
+        console.log("4b. Sending the history to the /chatbot endpoint...");
+        const aiRes = await sendChatMessageToAI(historyForAI);
+        console.log("5. Received response from AI:", aiRes);
+
+        dispatch(removeLastMessageFromChat(currentChatId));
+        if (aiRes && aiRes.reply) {
+          dispatch(
+            addMessageToChat({
+              chatId: currentChatId,
+              message: { text: aiRes.reply, isUser: false },
+            })
+          );
+          dispatch(updateConversation(currentChatId));
+          console.log("6. Success: Updated UI and saved conversation to DB.");
+        } else {
+          throw new Error("AI response was empty or malformed.");
+        }
+      } catch (e) {
+        console.error("7. CATCH BLOCK: An error occurred.", e);
+        dispatch(removeLastMessageFromChat(currentChatId));
+        dispatch(
+          addMessageToChat({
+            chatId: currentChatId,
+            message: { text: "Sorry, I ran into an error.", isUser: false },
+          })
+        );
+      } finally {
+        setIsAiResponding(false);
+      }
     }
   };
+
+  // ... the rest of your component
 
   const isLoadingMessages = status === "loading" && messages.length === 0;
 
@@ -171,7 +232,7 @@ const ChatPage = () => {
               <Button
                 type="submit"
                 size="icon"
-                className="absolute right-0 top-1/2 -translate-y-1/2"
+                className="absolute right-2 top-1/2 -translate-y-1/2"
                 onClick={handleSend}
                 disabled={isAiResponding || !input.trim()}
               >
